@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Night Market Blaster</title>
+<style>
+body { margin:0; background:black; overflow:hidden; font-family:Arial,sans-serif; }
+canvas { display:block; margin:auto; }
+#menu { position:absolute; width:100%; height:100%; background:rgba(0,0,0,0.8); color:white; display:flex; flex-direction:column; justify-content:center; align-items:center; }
+button { padding:12px 25px; margin:10px; font-size:18px; cursor:pointer; background:#ff00aa; border:none; color:white; }
+</style>
+</head>
+<body>
+
+<div id="menu">
+    <h1>🏮 Night Market Blaster 🏮</h1>
+    <p>Move: ← → | Shoot: SPACE | Pause: P</p>
+    <button onclick="startGame('easy')">Easy</button>
+    <button onclick="startGame('normal')">Normal</button>
+    <button onclick="startGame('hard')">Hard</button>
+</div>
+
+<canvas id="game" width="480" height="800"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+// GAME STATE
+let score=0, misses=0, paused=false, gameRunning=false;
+let enemySpeed=2, spawnRate=1200;
+
+// PLAYER
+const player={x:canvas.width/2-25,y:canvas.height-80,w:50,h:40,speed:6,shield:false,rapidFire:false,doubleShot:false};
+
+// ARRAYS
+let bullets=[], enemies=[], boosts=[], steam=[];
+
+// INPUT
+const keys={};
+document.addEventListener("keydown", e => { keys[e.code]=true; if(e.code==="Space") shoot(); if(e.code==="KeyP") paused=!paused; });
+document.addEventListener("keyup", e => keys[e.code]=false);
+
+// START GAME
+function startGame(mode){
+    document.getElementById("menu").style.display="none";
+    gameRunning=true;
+    score=0; misses=0;
+    enemies.length=bullets.length=boosts.length=steam.length=0;
+
+    if(mode==="easy"){enemySpeed=1.8;spawnRate=1600;}
+    else if(mode==="normal"){enemySpeed=2.5;spawnRate=1200;}
+    else{enemySpeed=3.5;spawnRate=800;}
+
+    setInterval(spawnEnemy,spawnRate);
+    setInterval(spawnBoost,9000);
+    setInterval(spawnSteam,400);
+
+    loop();
+}
+
+// SHOOT
+function shoot(){
+    if(!gameRunning || paused) return;
+
+    // Normal/Double shot bullets
+    if(player.doubleShot && !player.rapidFire){
+        bullets.push({x:player.x+player.w/2-10,y:player.y,w:6,h:15,speed:10,dx:0});
+        bullets.push({x:player.x+player.w/2+4,y:player.y,w:6,h:15,speed:10,dx:0});
+    } else if(!player.doubleShot && !player.rapidFire){
+        bullets.push({x:player.x+player.w/2-3,y:player.y,w:6,h:15,speed:10,dx:0});
+    }
+
+    // Rapid/Red Boost: shoot fan 5 bullets
+    if(player.rapidFire){
+        const angles=[-0.3,-0.15,0,0.15,0.3];
+        angles.forEach(a=>{
+            bullets.push({x:player.x+player.w/2-3,y:player.y,w:6,h:15,speed:10,dx:Math.sin(a)*5});
+        });
+    }
+
+    // Double + Rapid combo (optional fan + side shots)
+    if(player.doubleShot && player.rapidFire){
+        bullets.push({x:player.x+player.w/2-10,y:player.y,w:6,h:15,speed:10,dx:-2});
+        bullets.push({x:player.x+player.w/2+4,y:player.y,w:6,h:15,speed:10,dx:2});
+    }
+}
+
+// SPAWN ENEMY
+function spawnEnemy(){
+    if(!gameRunning) return;
+    const types=["rat","lantern","dumpling"];
+    const type=types[Math.floor(Math.random()*types.length)];
+    enemies.push({x:Math.random()*(canvas.width-40),y:-50,w:40,h:40,speed:enemySpeed,type});
+}
+
+// SPAWN BOOST
+function spawnBoost(){
+    const types=["Rapid","Double","Shield","Score","Speed"];
+    const type=types[Math.floor(Math.random()*types.length)];
+    const colorMap={"Rapid":"#ff4444","Double":"#ff8800","Shield":"#00ffff","Score":"#ffff00","Speed":"#3399ff"};
+    boosts.push({x:Math.random()*(canvas.width-25),y:-30,size:25,type:type,color:colorMap[type],dir:Math.random()>0.5?1:-1,speedX:1+Math.random()*1});
+}
+
+// SPAWN STEAM
+function spawnSteam(){ steam.push({x:Math.random()*canvas.width,y:canvas.height,r:Math.random()*6+4,alpha:0.5}); }
+
+// MAIN LOOP
+function loop(){ if(!gameRunning) return; if(!paused) update(); draw(); requestAnimationFrame(loop); }
+
+// UPDATE
+function update(){
+    if(keys["ArrowLeft"] && player.x>0) player.x-=player.speed;
+    if(keys["ArrowRight"] && player.x<canvas.width-player.w) player.x+=player.speed;
+
+    bullets.forEach(b=>{b.y-=b.speed; if(b.dx)b.x+=b.dx;});
+
+    enemies.forEach(e=>{
+        e.y+=e.speed;
+        if(spawnRate<=800) e.x+=Math.sin(Date.now()*0.005 + e.y*0.05)*3; // wiggle in hard
+    });
+
+    boosts.forEach(b=>{ b.y+=2; b.x+=b.dir*b.speedX; if(b.x<0){b.x=0;b.dir*=-1;} if(b.x+b.size>canvas.width){b.x=canvas.width-b.size;b.dir*=-1;} });
+
+    steam.forEach(s=>{s.y-=1;s.alpha-=0.005;});
+
+    checkCollisions();
+    cleanup();
+}
+
+// DRAW
+function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    drawBackground(); drawStalls(); drawSteam(); drawPlayer(); drawBullets(); drawEnemies(); drawBoosts(); drawUI();
+}
+
+// BACKGROUND
+function drawBackground(){
+    ctx.fillStyle="#1a0033"; ctx.fillRect(0,0,canvas.width,canvas.height);
+
+    // hanging lanterns
+    for(let i=0;i<6;i++){
+        let lx=i*80+40, ly=60+Math.sin(Date.now()*0.002+i)*15;
+        ctx.fillStyle="#ff6600"; ctx.beginPath(); ctx.ellipse(lx,ly,10,15,0,0,Math.PI*2); ctx.fill();
+        ctx.strokeStyle="#ffaa33"; ctx.beginPath(); ctx.moveTo(lx,ly+15); ctx.lineTo(lx,ly+25); ctx.stroke();
+    }
+
+    // neon signs
+    ctx.fillStyle="rgba(0,255,255,0.3)"; ctx.fillRect(50,canvas.height-180,80,10); ctx.fillRect(200,canvas.height-180,100,10);
+
+    // banners
+    for(let i=0;i<3;i++){ let bx=i*150+50; ctx.fillStyle="rgba(255,0,255,0.3)"; ctx.fillRect(bx,canvas.height-250,120,5); }
+
+    // floating lanterns
+    for(let i=0;i<4;i++){ let fx=i*120+60; let fy=(Date.now()*0.03+i*50)%canvas.height; ctx.fillStyle="rgba(255,120,0,0.4)"; ctx.beginPath(); ctx.arc(fx,fy,8,0,Math.PI*2); ctx.fill(); }
+}
+
+// STALLS
+function drawStalls(){ for(let i=0;i<canvas.width;i+=120){ ctx.fillStyle="#ff0066"; ctx.fillRect(i,canvas.height-120,100,40); ctx.fillStyle="#ffcc00"; ctx.fillRect(i+10,canvas.height-150,80,25); } }
+
+// PLAYER
+function drawPlayer(){ ctx.fillStyle=player.shield?"#00ffff":"#00ff99"; ctx.fillRect(player.x,player.y,player.w,player.h); }
+
+// BULLETS
+function drawBullets(){
+    bullets.forEach(b=>{
+        ctx.fillStyle=(player.rapidFire||player.doubleShot)?"#ff4444":"#00ff00";
+        ctx.shadowBlur=(player.rapidFire||player.doubleShot)?8:0; ctx.shadowColor=(player.rapidFire||player.doubleShot)?"red":"";
+        ctx.beginPath(); ctx.arc(b.x+b.w/2,b.y+b.h/2,b.w/2,0,Math.PI*2); ctx.fill();
+    });
+    ctx.shadowBlur=0;
+}
+
+// ENEMIES
+function drawEnemies(){ enemies.forEach(e=>{
+    if(e.type==="rat"){ ctx.fillStyle="#888"; ctx.beginPath(); ctx.ellipse(e.x+e.w/2,e.y+e.h/2,e.w/2,e.h/2,0,0,Math.PI*2); ctx.fill();
+    ctx.fillStyle="#555"; ctx.beginPath(); ctx.arc(e.x+5,e.y+5,5,0,Math.PI*2); ctx.arc(e.x+e.w-5,e.y+5,5,0,Math.PI*2); ctx.fill(); }
+    else if(e.type==="lantern"){ ctx.fillStyle="#ff3300"; ctx.beginPath(); ctx.ellipse(e.x+e.w/2,e.y+e.h/2,e.w/2,e.h/1.5,0,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle="#ffaa33"; ctx.beginPath(); ctx.moveTo(e.x+e.w/2,e.y+e.h/2-10); ctx.lineTo(e.x+e.w/2,e.y+e.h); ctx.stroke(); }
+    else if(e.type==="dumpling"){ ctx.fillStyle="#fff0c0"; ctx.beginPath(); ctx.arc(e.x+e.w/2,e.y+e.h/2,e.w/2,0,Math.PI*2); ctx.fill();
+    ctx.strokeStyle="#ffcc99"; ctx.stroke(); }
+    else{ ctx.fillStyle="#ffff00"; ctx.fillRect(e.x,e.y,e.w,e.h); }
+}); }
+
+// BOOSTS
+function drawBoosts(){ boosts.forEach(b=>{ ctx.fillStyle=b.color; ctx.fillRect(b.x,b.y,b.size,b.size); ctx.strokeStyle="white"; ctx.lineWidth=2; ctx.strokeRect(b.x,b.y,b.size,b.size);
+let bob=Math.sin(Date.now()*0.005+b.x)*3; ctx.fillStyle=b.color+"33"; ctx.fillRect(b.x,b.y+bob,b.size,b.size); }); }
+
+// STEAM
+function drawSteam(){ steam.forEach(s=>{ ctx.fillStyle=`rgba(255,255,255,${s.alpha})`; ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill(); }); }
+
+// UI
+function drawUI(){ ctx.fillStyle="white"; ctx.fillText("💰 Score:"+score,10,20); ctx.fillText("❌ Miss:"+misses+"/5",10,40); ctx.fillText("⏸ P to Pause",350,20); }
+
+// COLLISIONS
+function checkCollisions(){
+    enemies.forEach((e,ei)=>{ bullets.forEach((b,bi)=>{ if(hit(b,e)){ enemies.splice(ei,1); bullets.splice(bi,1); score+=10; } });
+        if(e.y>canvas.height){enemies.splice(ei,1); misses++; if(misses>=5) gameOver();} });
+
+    boosts.forEach((b,i)=>{ if(hit(player,b)){ applyBoost(b.type); boosts.splice(i,1); }
+        bullets.forEach((bu,bi)=>{ if(hit(bu,b)){ applyBoost(b.type); boosts.splice(i,1); bullets.splice(bi,1); } }); });
+}
+
+// APPLY BOOSTS
+function applyBoost(type){
+    switch(type){
+        case "Shield": player.shield=true; setTimeout(()=>player.shield=false,5000); break;
+        case "Score": score+=50; break;
+        case "Rapid": player.rapidFire=true; setTimeout(()=>player.rapidFire=false,5000); break;
+        case "Double": player.doubleShot=true; setTimeout(()=>player.doubleShot=false,5000); break;
+        case "Speed": player.speed=10; setTimeout(()=>player.speed=6,5000); break;
+    }
+}
+
+// HITBOX
+function hit(a,b){ return a.x<b.x+(b.w||b.size) && a.x+(a.w||a.size)>b.x && a.y<b.y+(b.h||b.size) && a.y+(a.h||a.size)>b.y; }
+
+// CLEANUP
+function cleanup(){ bullets=bullets.filter(b=>b.y>0); steam=steam.filter(s=>s.alpha>0); boosts=boosts.filter(b=>b.y<canvas.height); }
+
+// GAME OVER
+function gameOver(){ alert("GAME OVER! Your stall closed 😭"); location.reload(); }
+</script>
+</body>
+</html>
